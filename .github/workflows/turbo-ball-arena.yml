@@ -30,8 +30,25 @@ jobs:
         run: cmake -S TurboBallArena -B TurboBallArena/build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
+        id: build
+        continue-on-error: true
         shell: pwsh
-        run: cmake --build TurboBallArena/build --parallel
+        run: |
+          cmake --build TurboBallArena/build --parallel *>&1 | Tee-Object -FilePath TurboBallArena/build.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Turbo_Ball_Arena_build_log
+          path: TurboBallArena/build.log
+          if-no-files-found: warn
+
+      - name: Stop on build failure
+        if: steps.build.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Windows build failed; see uploaded build log.'
 
       - name: Assemble package
         shell: pwsh
