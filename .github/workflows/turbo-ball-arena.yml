@@ -1,0 +1,48 @@
+name: Turbo Ball Arena Windows Build
+
+on:
+  push:
+    branches:
+      - turbo-ball-arena-v3.0.2-fixed
+    paths:
+      - 'TurboBallArena/**'
+      - '.github/workflows/turbo-ball-arena.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        shell: pwsh
+        run: cmake -S TurboBallArena -B TurboBallArena/build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build TurboBallArena/build --config Release --parallel
+
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          $package = "Turbo_Ball_Arena_4.0_FULL_FIXED"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item TurboBallArena/CMakeLists.txt $package/
+          Copy-Item TurboBallArena/README.md $package/
+          Copy-Item TurboBallArena/AUTO_INSTALL_AND_PLAY.bat $package/
+          Copy-Item TurboBallArena/CLEAN_REBUILD_AND_PLAY.bat $package/
+          Copy-Item TurboBallArena/src $package/src -Recurse
+          New-Item -ItemType Directory -Force -Path "$package/prebuilt" | Out-Null
+          $exe = Get-ChildItem TurboBallArena/build -Filter TurboBallArena.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "TurboBallArena.exe was not produced" }
+          Copy-Item $exe.FullName "$package/prebuilt/TurboBallArena.exe"
+          Compress-Archive -Path $package -DestinationPath "Turbo_Ball_Arena_4.0_FULL_FIXED.zip" -Force
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Turbo_Ball_Arena_4.0_FULL_FIXED
+          path: Turbo_Ball_Arena_4.0_FULL_FIXED.zip
+          if-no-files-found: error
