@@ -16,6 +16,7 @@ FetchContent_MakeAvailable(raylib)
 
 add_executable(TurboBallArena src/main.cpp)
 target_link_libraries(TurboBallArena PRIVATE raylib)
+target_precompile_headers(TurboBallArena PRIVATE <cstdio> <rlgl.h>)
 
 if(MSVC)
     target_compile_options(TurboBallArena PRIVATE /W4 /permissive- /EHsc)
