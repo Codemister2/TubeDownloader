@@ -1,142 +1,552 @@
 #include "raylib.h"
+
 #include <algorithm>
-#include <array>
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include <vector>
 
 namespace {
-constexpr float PI_F = 3.14159265358979323846f;
-constexpr float ARENA_W = 46.0f;
-constexpr float ARENA_L = 68.0f;
-constexpr float WALL_H = 16.0f;
-constexpr float GOAL_W = 13.0f;
-constexpr float GOAL_H = 7.0f;
-constexpr float GOAL_D = 8.0f;
-constexpr Color BG{5, 10, 22, 255};
-constexpr Color PANEL{12, 20, 38, 235};
-constexpr Color PANEL2{22, 34, 58, 245};
-constexpr Color BLUE{35, 165, 255, 255};
-constexpr Color ORANGE{255, 126, 40, 255};
-constexpr Color GOLD{255, 206, 72, 255};
-constexpr Color TEXT{238, 244, 255, 255};
-constexpr Color MUTED{142, 157, 184, 255};
 
-float clampf(float v, float lo, float hi) { return std::max(lo, std::min(v, hi)); }
-float len3(Vector3 v) { return std::sqrt(v.x*v.x + v.y*v.y + v.z*v.z); }
-Vector3 add(Vector3 a, Vector3 b) { return {a.x+b.x,a.y+b.y,a.z+b.z}; }
-Vector3 sub(Vector3 a, Vector3 b) { return {a.x-b.x,a.y-b.y,a.z-b.z}; }
-Vector3 mul(Vector3 a,float s) { return {a.x*s,a.y*s,a.z*s}; }
-Vector3 norm(Vector3 v) { float l=len3(v); return l>0.0001f?mul(v,1.0f/l):Vector3{0,0,0}; }
+constexpr float kArenaWidth = 46.0f;
+constexpr float kArenaLength = 68.0f;
+constexpr float kWallHeight = 16.0f;
+constexpr float kGoalHalfWidth = 13.0f;
+constexpr float kGoalHeight = 7.0f;
+constexpr float kGoalDepth = 8.0f;
+constexpr float kPi = 3.14159265358979323846f;
 
-Font gFont{}; bool gFontLoaded=false;
-Font UiFont(){ return gFontLoaded?gFont:GetFontDefault(); }
-void LoadUiFont(){
+constexpr Color kBackground{5, 10, 22, 255};
+constexpr Color kPanel{12, 20, 38, 235};
+constexpr Color kPanelLight{22, 34, 58, 245};
+constexpr Color kBlue{35, 165, 255, 255};
+constexpr Color kOrange{255, 126, 40, 255};
+constexpr Color kGold{255, 206, 72, 255};
+constexpr Color kText{238, 244, 255, 255};
+constexpr Color kMuted{142, 157, 184, 255};
+
+float Clamp(float value, float minimum, float maximum) {
+    return std::max(minimum, std::min(value, maximum));
+}
+
+Vector3 Add(Vector3 a, Vector3 b) {
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Vector3 Subtract(Vector3 a, Vector3 b) {
+    return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+Vector3 Scale(Vector3 value, float amount) {
+    return {value.x * amount, value.y * amount, value.z * amount};
+}
+
+float Length(Vector3 value) {
+    return std::sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
+}
+
+Vector3 Normalize(Vector3 value) {
+    const float length = Length(value);
+    return length > 0.0001f ? Scale(value, 1.0f / length) : Vector3{0.0f, 0.0f, 0.0f};
+}
+
+Font gUiFont{};
+bool gUiFontLoaded = false;
+
+Font UiFont() {
+    return gUiFontLoaded ? gUiFont : GetFontDefault();
+}
+
+void LoadUiFont() {
 #ifdef _WIN32
-    const char* paths[]={"C:/Windows/Fonts/seguisb.ttf","C:/Windows/Fonts/segoeui.ttf","C:/Windows/Fonts/arial.ttf"};
-    for(const char* p:paths){ if(FileExists(p)){ Font f=LoadFontEx(p,48,nullptr,0); if(f.texture.id){ gFont=f; gFontLoaded=true; SetTextureFilter(gFont.texture,TEXTURE_FILTER_BILINEAR); break; } } }
+    const char* candidates[] = {
+        "C:/Windows/Fonts/seguisb.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf"
+    };
+    for (const char* path : candidates) {
+        if (!FileExists(path)) continue;
+        Font font = LoadFontEx(path, 48, nullptr, 0);
+        if (font.texture.id != 0) {
+            gUiFont = font;
+            gUiFontLoaded = true;
+            SetTextureFilter(gUiFont.texture, TEXTURE_FILTER_BILINEAR);
+            break;
+        }
+    }
 #endif
 }
-void UnloadUiFont(){ if(gFontLoaded) UnloadFont(gFont); }
-void Text(const std::string& s,float x,float y,float size,Color c=TEXT){ DrawTextEx(UiFont(),s.c_str(),{x,y},size,1.0f,c); }
-void CenterText(const std::string& s,Rectangle r,float size,Color c=TEXT){ Vector2 m=MeasureTextEx(UiFont(),s.c_str(),size,1.0f); Text(s,r.x+(r.width-m.x)/2,r.y+(r.height-m.y)/2,size,c); }
 
-bool Button(Rectangle r,const std::string& label,bool primary=false){
-    Vector2 m=GetMousePosition(); bool hover=CheckCollisionPointRec(m,r); Color fill=primary?BLUE:PANEL2; if(hover) fill=primary?Color{55,185,255,255}:Color{34,49,78,255};
-    DrawRectangleRounded(r,0.08f,8,fill); DrawRectangleLinesEx(r,1.0f,hover?TEXT:Color{70,88,120,255}); CenterText(label,r,20,TEXT);
-    return hover&&IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+void UnloadUiFont() {
+    if (gUiFontLoaded) UnloadFont(gUiFont);
 }
 
-struct Car{
-    Vector3 p{0,1,18},v{}; float yaw=PI_F; float pitch=0,roll=0; float boost=100; bool grounded=true; int score=0;
-    Vector3 forward() const { float cp=std::cos(pitch); return {std::sin(yaw)*cp,-std::sin(pitch),std::cos(yaw)*cp}; }
+void DrawUiText(const std::string& text, float x, float y, float size, Color color = kText) {
+    DrawTextEx(UiFont(), text.c_str(), {x, y}, size, 1.0f, color);
+}
+
+void DrawCenteredText(const std::string& text, Rectangle area, float size, Color color = kText) {
+    const Vector2 dimensions = MeasureTextEx(UiFont(), text.c_str(), size, 1.0f);
+    DrawUiText(text,
+               area.x + (area.width - dimensions.x) * 0.5f,
+               area.y + (area.height - dimensions.y) * 0.5f,
+               size,
+               color);
+}
+
+bool DrawButton(Rectangle area, const std::string& label, bool primary = false) {
+    const bool hovered = CheckCollisionPointRec(GetMousePosition(), area);
+    Color fill = primary ? kBlue : kPanelLight;
+    if (hovered) fill = primary ? Color{55, 185, 255, 255} : Color{34, 49, 78, 255};
+    DrawRectangleRounded(area, 0.08f, 8, fill);
+    DrawRectangleLinesEx(area, 1.0f, hovered ? kText : Color{70, 88, 120, 255});
+    DrawCenteredText(label, area, 20.0f);
+    return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+}
+
+struct Car {
+    Vector3 position{0.0f, 1.0f, 18.0f};
+    Vector3 velocity{};
+    float yaw = kPi;
+    float pitch = 0.0f;
+    float roll = 0.0f;
+    float boost = 100.0f;
+    bool grounded = true;
+
+    Vector3 Forward() const {
+        const float cosine = std::cos(pitch);
+        return {std::sin(yaw) * cosine, -std::sin(pitch), std::cos(yaw) * cosine};
+    }
 };
-struct Ball{ Vector3 p{0,3,0},v{}; };
 
-enum class Screen{Menu,Settings,Game,Pause};
+struct Ball {
+    Vector3 position{0.0f, 3.0f, 0.0f};
+    Vector3 velocity{};
+};
 
-class Game{
+enum class Screen {
+    Menu,
+    Settings,
+    Playing,
+    Paused
+};
+
+class Game {
 public:
-    Screen screen=Screen::Menu; Car player; std::vector<Car> bots; Ball ball; int blue=0,orange=0; float clock=180; bool ballCam=true; float camFov=75; float sensitivity=1.0f; bool shadows=true; bool arenaFx=true;
+    Game() {
+        ResetMatch();
+    }
 
-    Game(){ resetMatch(); }
-    void resetMatch(){ player={}; player.p={0,1,22}; player.yaw=PI_F; player.boost=100; bots.clear(); for(int i=0;i<3;i++){ Car b; b.p={(i-1)*12.0f,1,-22.0f-i*3}; b.yaw=0; bots.push_back(b);} ball={{0,3,0},{}}; blue=orange=0; clock=180; }
-    void kickoff(){ player.p={0,1,22}; player.v={}; player.yaw=PI_F; player.pitch=player.roll=0; player.boost=100; ball={{0,3,0},{}}; }
+    void Update(float deltaTime) {
+        if (screen_ == Screen::Playing) {
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                screen_ = Screen::Menu;
+                return;
+            }
+            if (IsKeyPressed(KEY_P)) {
+                screen_ = Screen::Paused;
+                return;
+            }
 
-    void input(float dt){
-        float throttle=(IsKeyDown(KEY_W)?1.f:0.f)-(IsKeyDown(KEY_S)?1.f:0.f);
-        float steer=(IsKeyDown(KEY_D)?1.f:0.f)-(IsKeyDown(KEY_A)?1.f:0.f);
-        if(IsGamepadAvailable(0)){ throttle=std::abs(GetGamepadAxisMovement(0,GAMEPAD_AXIS_LEFT_Y))>0.15f?-GetGamepadAxisMovement(0,GAMEPAD_AXIS_LEFT_Y):throttle; steer=std::abs(GetGamepadAxisMovement(0,GAMEPAD_AXIS_LEFT_X))>0.15f?GetGamepadAxisMovement(0,GAMEPAD_AXIS_LEFT_X):steer; }
-        bool boost=IsKeyDown(KEY_LEFT_SHIFT)||(IsGamepadAvailable(0)&&IsGamepadButtonDown(0,GAMEPAD_BUTTON_RIGHT_TRIGGER_2));
-        bool jump=IsKeyPressed(KEY_SPACE)||(IsGamepadAvailable(0)&&IsGamepadButtonPressed(0,GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
-        if(player.grounded){
-            player.yaw += steer*2.35f*dt*(0.35f+clampf(len3(player.v)/28.f,0,1));
-            Vector3 f=player.forward(); f.y=0; f=norm(f); player.v=add(player.v,mul(f,throttle*34.f*dt));
-            if(jump){ player.v.y=12.5f; player.grounded=false; }
-        }else{
-            player.pitch += -throttle*1.9f*sensitivity*dt; player.yaw += steer*1.8f*sensitivity*dt;
-            float ar=(IsKeyDown(KEY_E)?1.f:0.f)-(IsKeyDown(KEY_Q)?1.f:0.f); player.roll+=ar*2.3f*sensitivity*dt;
-            if(jump) player.v=add(player.v,mul(player.forward(),9.0f));
+            ReadInput(deltaTime);
+            UpdateCar(player_, deltaTime);
+            for (Car& bot : bots_) UpdateBot(bot, deltaTime);
+            HitBall(player_);
+            for (Car& bot : bots_) HitBall(bot);
+            UpdateBall(deltaTime);
+
+            matchTime_ = std::max(0.0f, matchTime_ - deltaTime);
+            if (matchTime_ <= 0.0f) screen_ = Screen::Menu;
+        } else if (screen_ == Screen::Paused) {
+            if (IsKeyPressed(KEY_P)) screen_ = Screen::Playing;
+            if (IsKeyPressed(KEY_ESCAPE)) screen_ = Screen::Menu;
         }
-        if(boost&&player.boost>0){ player.v=add(player.v,mul(player.forward(),42.f*dt)); player.boost=std::max(0.f,player.boost-28.f*dt); }
-        if(IsKeyPressed(KEY_C)) ballCam=!ballCam;
     }
 
-    void carPhysics(Car& c,float dt){
-        c.v.y-=24.f*dt; c.v=mul(c.v,std::pow(c.grounded?0.987f:0.997f,dt*60)); c.p=add(c.p,mul(c.v,dt));
-        if(c.p.y<1){c.p.y=1;c.v.y=std::max(0.f,-c.v.y*0.18f);c.grounded=true;c.pitch*=0.88f;c.roll*=0.88f;} else c.grounded=false;
-        if(c.p.y>WALL_H-1){c.p.y=WALL_H-1;c.v.y*=-0.4f;}
-        if(std::abs(c.p.x)>ARENA_W-1){c.p.x=clampf(c.p.x,-ARENA_W+1,ARENA_W-1);c.v.x*=-0.55f;}
-        bool inGoal=std::abs(c.p.x)<GOAL_W;
-        if(std::abs(c.p.z)>ARENA_L-1 && !inGoal){c.p.z=clampf(c.p.z,-ARENA_L+1,ARENA_L-1);c.v.z*=-0.55f;}
-        c.boost=std::min(100.f,c.boost+5.f*dt);
+    void Draw() {
+        BeginDrawing();
+        if (screen_ == Screen::Menu) {
+            DrawMenu();
+        } else if (screen_ == Screen::Settings) {
+            DrawSettings();
+        } else {
+            DrawWorld();
+            DrawHud();
+            if (screen_ == Screen::Paused) DrawPauseMenu();
+        }
+        EndDrawing();
     }
 
-    void botAI(Car& b,float dt){ Vector3 d=sub(ball.p,b.p); b.yaw=std::atan2(d.x,d.z); Vector3 f=norm(Vector3{d.x,0,d.z}); b.v=add(b.v,mul(f,24.f*dt)); if(d.y>5&&len3(d)<14&&b.grounded){b.v.y=10;b.grounded=false;} carPhysics(b,dt); }
+private:
+    Screen screen_ = Screen::Menu;
+    Car player_{};
+    std::vector<Car> bots_{};
+    Ball ball_{};
+    int blueScore_ = 0;
+    int orangeScore_ = 0;
+    float matchTime_ = 180.0f;
+    bool ballCam_ = true;
+    float cameraFov_ = 75.0f;
+    float aerialSensitivity_ = 1.0f;
+    bool shadows_ = true;
+    bool arenaEffects_ = true;
 
-    void hitBall(Car& c){ Vector3 d=sub(ball.p,c.p); float dist=len3(d); if(dist<3.3f){Vector3 n=norm(d); float rel=len3(c.v); ball.v=add(ball.v,mul(n,13.f+rel*0.72f)); ball.v=add(ball.v,mul(c.v,0.32f)); ball.p=add(c.p,mul(n,3.35f));} }
-    void ballPhysics(float dt){
-        ball.v.y-=18.f*dt; ball.v=mul(ball.v,std::pow(0.998f,dt*60)); ball.p=add(ball.p,mul(ball.v,dt));
-        if(ball.p.y<1.6f){ball.p.y=1.6f;ball.v.y=std::abs(ball.v.y)*0.72f;}
-        if(ball.p.y>WALL_H-1.6f){ball.p.y=WALL_H-1.6f;ball.v.y*=-0.72f;}
-        if(std::abs(ball.p.x)>ARENA_W-1.6f){ball.p.x=clampf(ball.p.x,-ARENA_W+1.6f,ARENA_W-1.6f);ball.v.x*=-0.78f;}
-        bool goalMouth=std::abs(ball.p.x)<GOAL_W&&ball.p.y<GOAL_H;
-        if(std::abs(ball.p.z)>ARENA_L-1.6f&&!goalMouth){ball.p.z=clampf(ball.p.z,-ARENA_L+1.6f,ARENA_L-1.6f);ball.v.z*=-0.78f;}
-        if(ball.p.z>ARENA_L+GOAL_D){blue++;kickoff();} if(ball.p.z<-ARENA_L-GOAL_D){orange++;kickoff();}
+    void ResetMatch() {
+        player_ = {};
+        player_.position = {0.0f, 1.0f, 22.0f};
+        player_.yaw = kPi;
+        player_.boost = 100.0f;
+
+        bots_.clear();
+        for (int index = 0; index < 3; ++index) {
+            Car bot;
+            bot.position = {(static_cast<float>(index) - 1.0f) * 12.0f,
+                            1.0f,
+                            -22.0f - static_cast<float>(index) * 3.0f};
+            bot.yaw = 0.0f;
+            bots_.push_back(bot);
+        }
+
+        ball_ = {};
+        blueScore_ = 0;
+        orangeScore_ = 0;
+        matchTime_ = 180.0f;
     }
 
-    void update(float dt){
-        if(screen==Screen::Game){ if(IsKeyPressed(KEY_ESCAPE)){screen=Screen::Menu;return;} if(IsKeyPressed(KEY_P)){screen=Screen::Pause;return;} input(dt); carPhysics(player,dt); for(auto&b:bots)botAI(b,dt); hitBall(player); for(auto&b:bots)hitBall(b); ballPhysics(dt); clock=std::max(0.f,clock-dt); if(clock<=0)screen=Screen::Menu; }
-        else if(screen==Screen::Pause){ if(IsKeyPressed(KEY_P))screen=Screen::Game; if(IsKeyPressed(KEY_ESCAPE))screen=Screen::Menu; }
+    void ResetKickoff() {
+        player_.position = {0.0f, 1.0f, 22.0f};
+        player_.velocity = {};
+        player_.yaw = kPi;
+        player_.pitch = 0.0f;
+        player_.roll = 0.0f;
+        player_.boost = 100.0f;
+        ball_ = {};
     }
 
-    Camera3D camera(){ Vector3 f=player.forward(); Vector3 focus=ballCam?ball.p:add(player.p,mul(f,14)); Vector3 back=norm(Vector3{focus.x-player.p.x,0,focus.z-player.p.z}); if(!ballCam) back=norm(Vector3{f.x,0,f.z}); Vector3 pos=add(player.p,Vector3{-back.x*13,7.0f,-back.z*13}); return {pos,focus,{0,1,0},camFov,CAMERA_PERSPECTIVE}; }
+    void ReadInput(float deltaTime) {
+        float throttle = (IsKeyDown(KEY_W) ? 1.0f : 0.0f) - (IsKeyDown(KEY_S) ? 1.0f : 0.0f);
+        float steering = (IsKeyDown(KEY_D) ? 1.0f : 0.0f) - (IsKeyDown(KEY_A) ? 1.0f : 0.0f);
 
-    void arena(){
-        DrawCube({0,-0.3f,0},ARENA_W*2,0.5f,ARENA_L*2,Color{14,70,68,255});
-        for(int i=-8;i<=8;i++) DrawCube({i*5.4f,0.02f,0},0.08f,0.03f,ARENA_L*2,Color{16,static_cast<unsigned char>(78+(i&1)*8),77,255});
-        DrawCube({0,0.06f,0},0.20f,0.03f,ARENA_L*2,Fade(TEXT,0.65f)); DrawCircle3D({0,0.08f,0},10,{1,0,0},90,Fade(TEXT,0.7f));
-        Color glass={80,170,230,55}; BeginBlendMode(BLEND_ALPHA); DrawCube({-ARENA_W, WALL_H/2,0},0.35f,WALL_H,ARENA_L*2,glass); DrawCube({ARENA_W,WALL_H/2,0},0.35f,WALL_H,ARENA_L*2,glass); DrawCube({0,WALL_H/2,-ARENA_L},ARENA_W*2,WALL_H,0.35f,glass); DrawCube({0,WALL_H/2,ARENA_L},ARENA_W*2,WALL_H,0.35f,glass); EndBlendMode();
-        for(float z:{-ARENA_L-GOAL_D/2,ARENA_L+GOAL_D/2}){Color c=z<0?BLUE:ORANGE; DrawCube({-GOAL_W,GOAL_H/2,z},0.5f,GOAL_H,GOAL_D,c);DrawCube({GOAL_W,GOAL_H/2,z},0.5f,GOAL_H,GOAL_D,c);DrawCube({0,GOAL_H,z},GOAL_W*2,0.5f,GOAL_D,c);}
-        if(arenaFx){ for(int i=0;i<8;i++){float x=((i%4)-1.5f)*18;float z=(i<4?-1:1)*30;DrawCylinder({x,0.15f,z},2.1f,2.1f,0.25f,24,Fade(GOLD,0.75f));} }
+        if (IsGamepadAvailable(0)) {
+            const float axisY = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+            const float axisX = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+            if (std::abs(axisY) > 0.15f) throttle = -axisY;
+            if (std::abs(axisX) > 0.15f) steering = axisX;
+        }
+
+        const bool jumpPressed = IsKeyPressed(KEY_SPACE) ||
+            (IsGamepadAvailable(0) && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
+        const bool boostHeld = IsKeyDown(KEY_LEFT_SHIFT) ||
+            (IsGamepadAvailable(0) && IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2));
+
+        if (player_.grounded) {
+            player_.yaw += steering * 2.35f * deltaTime *
+                (0.35f + Clamp(Length(player_.velocity) / 28.0f, 0.0f, 1.0f));
+            Vector3 forward = player_.Forward();
+            forward.y = 0.0f;
+            forward = Normalize(forward);
+            player_.velocity = Add(player_.velocity, Scale(forward, throttle * 34.0f * deltaTime));
+            if (jumpPressed) {
+                player_.velocity.y = 12.5f;
+                player_.grounded = false;
+            }
+        } else {
+            player_.pitch -= throttle * 1.9f * aerialSensitivity_ * deltaTime;
+            player_.yaw += steering * 1.8f * aerialSensitivity_ * deltaTime;
+            const float airRoll = (IsKeyDown(KEY_E) ? 1.0f : 0.0f) - (IsKeyDown(KEY_Q) ? 1.0f : 0.0f);
+            player_.roll += airRoll * 2.3f * aerialSensitivity_ * deltaTime;
+            if (jumpPressed) player_.velocity = Add(player_.velocity, Scale(player_.Forward(), 9.0f));
+        }
+
+        if (boostHeld && player_.boost > 0.0f) {
+            player_.velocity = Add(player_.velocity, Scale(player_.Forward(), 42.0f * deltaTime));
+            player_.boost = std::max(0.0f, player_.boost - 28.0f * deltaTime);
+        }
+
+        if (IsKeyPressed(KEY_C)) ballCam_ = !ballCam_;
     }
 
-    void drawCar(const Car& c,Color col){ rlPushMatrix(); rlTranslatef(c.p.x,c.p.y,c.p.z); rlRotatef(c.yaw*180.f/PI_F,0,1,0); rlRotatef(c.pitch*180.f/PI_F,1,0,0); rlRotatef(c.roll*180.f/PI_F,0,0,1); DrawCube({0,0,0},2.8f,1.1f,4.8f,col); DrawCube({0,0.75f,-0.2f},2.2f,0.8f,2.4f,Color{25,35,55,255}); for(float x:{-1.45f,1.45f})for(float z:{-1.5f,1.5f})DrawCylinder({x,-0.45f,z},0.46f,0.46f,0.35f,14,Color{18,18,22,255}); rlPopMatrix(); }
+    void UpdateCar(Car& car, float deltaTime) {
+        car.velocity.y -= 24.0f * deltaTime;
+        const float damping = car.grounded ? 0.987f : 0.997f;
+        car.velocity = Scale(car.velocity, std::pow(damping, deltaTime * 60.0f));
+        car.position = Add(car.position, Scale(car.velocity, deltaTime));
 
-    void world(){ ClearBackground(BG); Camera3D cam=camera(); BeginMode3D(cam); arena(); if(shadows){DrawCircle3D({player.p.x,0.03f,player.p.z},2.2f,{1,0,0},90,Fade(BLACK,0.4f));} drawCar(player,BLUE); for(auto&b:bots)drawCar(b,ORANGE); DrawSphere(ball.p,1.6f,Color{235,238,245,255}); DrawSphereWires(ball.p,1.62f,12,18,Color{40,50,70,255}); EndMode3D(); }
+        if (car.position.y < 1.0f) {
+            car.position.y = 1.0f;
+            car.velocity.y = std::max(0.0f, -car.velocity.y * 0.18f);
+            car.grounded = true;
+            car.pitch *= 0.88f;
+            car.roll *= 0.88f;
+        } else {
+            car.grounded = false;
+        }
 
-    void hud(){
-        Rectangle score{GetScreenWidth()/2.f-185,18,370,68}; DrawRectangleRounded(score,0.08f,8,PANEL); DrawRectangleRounded({score.x,score.y,90,score.height},0.08f,8,Color{12,74,132,255}); DrawRectangleRounded({score.x+280,score.y,90,score.height},0.08f,8,Color{145,60,10,255}); CenterText(std::to_string(blue),{score.x,score.y,90,68},36); CenterText(std::to_string(orange),{score.x+280,score.y,90,68},36); int sec=(int)std::ceil(clock); char buf[16]; std::snprintf(buf,sizeof(buf),"%d:%02d",sec/60,sec%60); CenterText(buf,{score.x+90,score.y,190,68},28);
-        Rectangle boost{GetScreenWidth()-155.f,GetScreenHeight()-125.f,120,82}; DrawRectangleRounded(boost,0.08f,8,PANEL); Text(std::to_string((int)player.boost),boost.x+19,boost.y+8,34,GOLD); Text("BOOST",boost.x+27,boost.y+52,14,MUTED);
-        Text(ballCam?"BALL CAM":"CAR CAM",28,GetScreenHeight()-48.f,17,ballCam?GOLD:MUTED); Text("ESC MENU   P PAUSE",28,24,14,MUTED);
+        if (car.position.y > kWallHeight - 1.0f) {
+            car.position.y = kWallHeight - 1.0f;
+            car.velocity.y *= -0.4f;
+        }
+
+        if (std::abs(car.position.x) > kArenaWidth - 1.0f) {
+            car.position.x = Clamp(car.position.x, -kArenaWidth + 1.0f, kArenaWidth - 1.0f);
+            car.velocity.x *= -0.55f;
+        }
+
+        const bool insideGoalWidth = std::abs(car.position.x) < kGoalHalfWidth;
+        if (std::abs(car.position.z) > kArenaLength - 1.0f && !insideGoalWidth) {
+            car.position.z = Clamp(car.position.z, -kArenaLength + 1.0f, kArenaLength - 1.0f);
+            car.velocity.z *= -0.55f;
+        }
+
+        car.boost = std::min(100.0f, car.boost + 5.0f * deltaTime);
     }
 
-    void menu(){ ClearBackground(BG); DrawRectangleGradientV(0,0,GetScreenWidth(),GetScreenHeight(),Color{8,18,38,255},BG); float x=70,y=70; Text("TURBO BALL",x,y,58,TEXT); Text("ARENA",x,y+58,58,BLUE); Text("DIRECT RENDER EDITION",x,y+128,16,MUTED); Rectangle p{x,y+190,430,330}; DrawRectangleRounded(p,0.03f,8,PANEL); if(Button({p.x+35,p.y+34,p.width-70,56},"QUICK PLAY",true)){resetMatch();screen=Screen::Game;} if(Button({p.x+35,p.y+106,p.width-70,56},"FREE PLAY")){resetMatch();clock=3600;screen=Screen::Game;} if(Button({p.x+35,p.y+178,p.width-70,56},"SETTINGS"))screen=Screen::Settings; if(Button({p.x+35,p.y+250,p.width-70,56},"QUIT"))CloseWindow(); Text("WASD drive  |  SPACE jump/dodge  |  SHIFT boost",x,y+545,15,MUTED); }
+    void UpdateBot(Car& bot, float deltaTime) {
+        const Vector3 difference = Subtract(ball_.position, bot.position);
+        bot.yaw = std::atan2(difference.x, difference.z);
+        const Vector3 direction = Normalize({difference.x, 0.0f, difference.z});
+        bot.velocity = Add(bot.velocity, Scale(direction, 24.0f * deltaTime));
+        if (difference.y > 5.0f && Length(difference) < 14.0f && bot.grounded) {
+            bot.velocity.y = 10.0f;
+            bot.grounded = false;
+        }
+        UpdateCar(bot, deltaTime);
+    }
 
-    void settings(){ ClearBackground(BG); Text("SETTINGS",70,55,48); Rectangle p{70,130,620,450}; DrawRectangleRounded(p,0.03f,8,PANEL); Text("CAMERA FOV",p.x+36,p.y+38,19); if(Button({p.x+360,p.y+25,70,44},"-"))camFov=std::max(55.f,camFov-5); CenterText(std::to_string((int)camFov),{p.x+438,p.y+25,92,44},18); if(Button({p.x+538,p.y+25,48,44},"+"))camFov=std::min(110.f,camFov+5); Text("AERIAL SENSITIVITY",p.x+36,p.y+112,19); if(Button({p.x+360,p.y+99,70,44},"-"))sensitivity=std::max(.5f,sensitivity-.1f); char sensitivityText[16]; std::snprintf(sensitivityText,sizeof(sensitivityText),"%.1f",sensitivity); CenterText(sensitivityText,{p.x+438,p.y+99,92,44},17); if(Button({p.x+538,p.y+99,48,44},"+"))sensitivity=std::min(2.f,sensitivity+.1f); if(Button({p.x+36,p.y+180,250,50},shadows?"SHADOWS: ON":"SHADOWS: OFF"))shadows=!shadows; if(Button({p.x+304,p.y+180,282,50},arenaFx?"ARENA FX: ON":"ARENA FX: OFF"))arenaFx=!arenaFx; Text("This build intentionally avoids post-processing and render textures",p.x+36,p.y+270,15,MUTED); Text("so the arena remains visible on more Windows GPUs.",p.x+36,p.y+295,15,MUTED); if(Button({p.x+36,p.y+355,180,52},"BACK",true))screen=Screen::Menu; }
+    void HitBall(const Car& car) {
+        const Vector3 difference = Subtract(ball_.position, car.position);
+        const float distance = Length(difference);
+        if (distance >= 3.3f) return;
 
-    void draw(){ BeginDrawing(); if(screen==Screen::Menu)menu(); else if(screen==Screen::Settings)settings(); else {world();hud(); if(screen==Screen::Pause){DrawRectangle(0,0,GetScreenWidth(),GetScreenHeight(),Fade(BLACK,0.65f)); Rectangle p{GetScreenWidth()/2.f-240,GetScreenHeight()/2.f-160,480,320};DrawRectangleRounded(p,0.05f,8,PANEL);CenterText("PAUSED",{p.x,p.y+25,p.width,60},34);if(Button({p.x+70,p.y+110,p.width-140,52},"RESUME",true))screen=Screen::Game;if(Button({p.x+70,p.y+180,p.width-140,52},"MAIN MENU"))screen=Screen::Menu;}} EndDrawing(); }
+        const Vector3 normal = Normalize(difference);
+        ball_.velocity = Add(ball_.velocity, Scale(normal, 13.0f + Length(car.velocity) * 0.72f));
+        ball_.velocity = Add(ball_.velocity, Scale(car.velocity, 0.32f));
+        ball_.position = Add(car.position, Scale(normal, 3.35f));
+    }
+
+    void UpdateBall(float deltaTime) {
+        ball_.velocity.y -= 18.0f * deltaTime;
+        ball_.velocity = Scale(ball_.velocity, std::pow(0.998f, deltaTime * 60.0f));
+        ball_.position = Add(ball_.position, Scale(ball_.velocity, deltaTime));
+
+        if (ball_.position.y < 1.6f) {
+            ball_.position.y = 1.6f;
+            ball_.velocity.y = std::abs(ball_.velocity.y) * 0.72f;
+        }
+        if (ball_.position.y > kWallHeight - 1.6f) {
+            ball_.position.y = kWallHeight - 1.6f;
+            ball_.velocity.y *= -0.72f;
+        }
+        if (std::abs(ball_.position.x) > kArenaWidth - 1.6f) {
+            ball_.position.x = Clamp(ball_.position.x, -kArenaWidth + 1.6f, kArenaWidth - 1.6f);
+            ball_.velocity.x *= -0.78f;
+        }
+
+        const bool insideGoal = std::abs(ball_.position.x) < kGoalHalfWidth && ball_.position.y < kGoalHeight;
+        if (std::abs(ball_.position.z) > kArenaLength - 1.6f && !insideGoal) {
+            ball_.position.z = Clamp(ball_.position.z, -kArenaLength + 1.6f, kArenaLength - 1.6f);
+            ball_.velocity.z *= -0.78f;
+        }
+
+        if (ball_.position.z > kArenaLength + kGoalDepth) {
+            ++blueScore_;
+            ResetKickoff();
+        } else if (ball_.position.z < -kArenaLength - kGoalDepth) {
+            ++orangeScore_;
+            ResetKickoff();
+        }
+    }
+
+    Camera3D CreateCamera() const {
+        const Vector3 forward = player_.Forward();
+        const Vector3 focus = ballCam_ ? ball_.position : Add(player_.position, Scale(forward, 14.0f));
+        Vector3 direction = Normalize({focus.x - player_.position.x, 0.0f, focus.z - player_.position.z});
+        if (!ballCam_) direction = Normalize({forward.x, 0.0f, forward.z});
+        const Vector3 position = Add(player_.position, {-direction.x * 13.0f, 7.0f, -direction.z * 13.0f});
+        return {position, focus, {0.0f, 1.0f, 0.0f}, cameraFov_, CAMERA_PERSPECTIVE};
+    }
+
+    void DrawArena() const {
+        DrawCube({0.0f, -0.3f, 0.0f}, kArenaWidth * 2.0f, 0.5f, kArenaLength * 2.0f,
+                 Color{14, 70, 68, 255});
+
+        for (int index = -8; index <= 8; ++index) {
+            const unsigned char green = static_cast<unsigned char>(78 + ((index & 1) != 0 ? 8 : 0));
+            DrawCube({static_cast<float>(index) * 5.4f, 0.02f, 0.0f},
+                     0.08f, 0.03f, kArenaLength * 2.0f, Color{16, green, 77, 255});
+        }
+
+        DrawCube({0.0f, 0.06f, 0.0f}, 0.20f, 0.03f, kArenaLength * 2.0f, Fade(kText, 0.65f));
+        DrawCircle3D({0.0f, 0.08f, 0.0f}, 10.0f, {1.0f, 0.0f, 0.0f}, 90.0f, Fade(kText, 0.7f));
+
+        const Color glass{80, 170, 230, 55};
+        BeginBlendMode(BLEND_ALPHA);
+        DrawCube({-kArenaWidth, kWallHeight * 0.5f, 0.0f}, 0.35f, kWallHeight, kArenaLength * 2.0f, glass);
+        DrawCube({kArenaWidth, kWallHeight * 0.5f, 0.0f}, 0.35f, kWallHeight, kArenaLength * 2.0f, glass);
+        DrawCube({0.0f, kWallHeight * 0.5f, -kArenaLength}, kArenaWidth * 2.0f, kWallHeight, 0.35f, glass);
+        DrawCube({0.0f, kWallHeight * 0.5f, kArenaLength}, kArenaWidth * 2.0f, kWallHeight, 0.35f, glass);
+        EndBlendMode();
+
+        const float goalPositions[2] = {-kArenaLength - kGoalDepth * 0.5f,
+                                         kArenaLength + kGoalDepth * 0.5f};
+        for (float z : goalPositions) {
+            const Color color = z < 0.0f ? kBlue : kOrange;
+            DrawCube({-kGoalHalfWidth, kGoalHeight * 0.5f, z}, 0.5f, kGoalHeight, kGoalDepth, color);
+            DrawCube({kGoalHalfWidth, kGoalHeight * 0.5f, z}, 0.5f, kGoalHeight, kGoalDepth, color);
+            DrawCube({0.0f, kGoalHeight, z}, kGoalHalfWidth * 2.0f, 0.5f, kGoalDepth, color);
+        }
+
+        if (arenaEffects_) {
+            for (int index = 0; index < 8; ++index) {
+                const float x = (static_cast<float>(index % 4) - 1.5f) * 18.0f;
+                const float z = (index < 4 ? -1.0f : 1.0f) * 30.0f;
+                DrawCylinder({x, 0.15f, z}, 2.1f, 2.1f, 0.25f, 24, Fade(kGold, 0.75f));
+            }
+        }
+    }
+
+    void DrawCar(const Car& car, Color color) const {
+        DrawCube(car.position, 2.8f, 1.1f, 4.8f, color);
+        DrawCube({car.position.x, car.position.y + 0.75f, car.position.z - 0.2f},
+                 2.2f, 0.8f, 2.4f, Color{25, 35, 55, 255});
+
+        const float wheelX[2] = {-1.45f, 1.45f};
+        const float wheelZ[2] = {-1.5f, 1.5f};
+        for (float x : wheelX) {
+            for (float z : wheelZ) {
+                DrawCylinder({car.position.x + x, car.position.y - 0.45f, car.position.z + z},
+                             0.46f, 0.46f, 0.35f, 14, Color{18, 18, 22, 255});
+            }
+        }
+    }
+
+    void DrawWorld() const {
+        ClearBackground(kBackground);
+        const Camera3D camera = CreateCamera();
+        BeginMode3D(camera);
+        DrawArena();
+        if (shadows_) {
+            DrawCircle3D({player_.position.x, 0.03f, player_.position.z}, 2.2f,
+                         {1.0f, 0.0f, 0.0f}, 90.0f, Fade(BLACK, 0.4f));
+        }
+        DrawCar(player_, kBlue);
+        for (const Car& bot : bots_) DrawCar(bot, kOrange);
+        DrawSphere(ball_.position, 1.6f, Color{235, 238, 245, 255});
+        DrawSphereWires(ball_.position, 1.62f, 12, 18, Color{40, 50, 70, 255});
+        EndMode3D();
+    }
+
+    void DrawHud() const {
+        const float width = static_cast<float>(GetScreenWidth());
+        const float height = static_cast<float>(GetScreenHeight());
+
+        Rectangle scoreBox{width * 0.5f - 185.0f, 18.0f, 370.0f, 68.0f};
+        DrawRectangleRounded(scoreBox, 0.08f, 8, kPanel);
+        DrawRectangleRounded({scoreBox.x, scoreBox.y, 90.0f, scoreBox.height},
+                             0.08f, 8, Color{12, 74, 132, 255});
+        DrawRectangleRounded({scoreBox.x + 280.0f, scoreBox.y, 90.0f, scoreBox.height},
+                             0.08f, 8, Color{145, 60, 10, 255});
+        DrawCenteredText(std::to_string(blueScore_), {scoreBox.x, scoreBox.y, 90.0f, 68.0f}, 36.0f);
+        DrawCenteredText(std::to_string(orangeScore_), {scoreBox.x + 280.0f, scoreBox.y, 90.0f, 68.0f}, 36.0f);
+
+        const int seconds = static_cast<int>(std::ceil(matchTime_));
+        char clockText[16];
+        std::snprintf(clockText, sizeof(clockText), "%d:%02d", seconds / 60, seconds % 60);
+        DrawCenteredText(clockText, {scoreBox.x + 90.0f, scoreBox.y, 190.0f, 68.0f}, 28.0f);
+
+        Rectangle boostBox{width - 155.0f, height - 125.0f, 120.0f, 82.0f};
+        DrawRectangleRounded(boostBox, 0.08f, 8, kPanel);
+        DrawUiText(std::to_string(static_cast<int>(player_.boost)), boostBox.x + 19.0f, boostBox.y + 8.0f, 34.0f, kGold);
+        DrawUiText("BOOST", boostBox.x + 27.0f, boostBox.y + 52.0f, 14.0f, kMuted);
+        DrawUiText(ballCam_ ? "BALL CAM" : "CAR CAM", 28.0f, height - 48.0f, 17.0f, ballCam_ ? kGold : kMuted);
+        DrawUiText("ESC MENU   P PAUSE", 28.0f, 24.0f, 14.0f, kMuted);
+    }
+
+    void DrawMenu() {
+        ClearBackground(kBackground);
+        DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(), Color{8, 18, 38, 255}, kBackground);
+        const float x = 70.0f;
+        const float y = 70.0f;
+        DrawUiText("TURBO BALL", x, y, 58.0f);
+        DrawUiText("ARENA", x, y + 58.0f, 58.0f, kBlue);
+        DrawUiText("DIRECT RENDER EDITION", x, y + 128.0f, 16.0f, kMuted);
+
+        Rectangle panel{x, y + 190.0f, 430.0f, 330.0f};
+        DrawRectangleRounded(panel, 0.03f, 8, kPanel);
+        if (DrawButton({panel.x + 35.0f, panel.y + 34.0f, panel.width - 70.0f, 56.0f}, "QUICK PLAY", true)) {
+            ResetMatch();
+            screen_ = Screen::Playing;
+        }
+        if (DrawButton({panel.x + 35.0f, panel.y + 106.0f, panel.width - 70.0f, 56.0f}, "FREE PLAY")) {
+            ResetMatch();
+            matchTime_ = 3600.0f;
+            screen_ = Screen::Playing;
+        }
+        if (DrawButton({panel.x + 35.0f, panel.y + 178.0f, panel.width - 70.0f, 56.0f}, "SETTINGS")) {
+            screen_ = Screen::Settings;
+        }
+        if (DrawButton({panel.x + 35.0f, panel.y + 250.0f, panel.width - 70.0f, 56.0f}, "QUIT")) {
+            CloseWindow();
+        }
+        DrawUiText("WASD drive  |  SPACE jump/dodge  |  SHIFT boost", x, y + 545.0f, 15.0f, kMuted);
+    }
+
+    void DrawSettings() {
+        ClearBackground(kBackground);
+        DrawUiText("SETTINGS", 70.0f, 55.0f, 48.0f);
+        Rectangle panel{70.0f, 130.0f, 620.0f, 450.0f};
+        DrawRectangleRounded(panel, 0.03f, 8, kPanel);
+
+        DrawUiText("CAMERA FOV", panel.x + 36.0f, panel.y + 38.0f, 19.0f);
+        if (DrawButton({panel.x + 360.0f, panel.y + 25.0f, 70.0f, 44.0f}, "-")) cameraFov_ = std::max(55.0f, cameraFov_ - 5.0f);
+        DrawCenteredText(std::to_string(static_cast<int>(cameraFov_)), {panel.x + 438.0f, panel.y + 25.0f, 92.0f, 44.0f}, 18.0f);
+        if (DrawButton({panel.x + 538.0f, panel.y + 25.0f, 48.0f, 44.0f}, "+")) cameraFov_ = std::min(110.0f, cameraFov_ + 5.0f);
+
+        DrawUiText("AERIAL SENSITIVITY", panel.x + 36.0f, panel.y + 112.0f, 19.0f);
+        if (DrawButton({panel.x + 360.0f, panel.y + 99.0f, 70.0f, 44.0f}, "-")) aerialSensitivity_ = std::max(0.5f, aerialSensitivity_ - 0.1f);
+        char sensitivityText[16];
+        std::snprintf(sensitivityText, sizeof(sensitivityText), "%.1f", aerialSensitivity_);
+        DrawCenteredText(sensitivityText, {panel.x + 438.0f, panel.y + 99.0f, 92.0f, 44.0f}, 17.0f);
+        if (DrawButton({panel.x + 538.0f, panel.y + 99.0f, 48.0f, 44.0f}, "+")) aerialSensitivity_ = std::min(2.0f, aerialSensitivity_ + 0.1f);
+
+        if (DrawButton({panel.x + 36.0f, panel.y + 180.0f, 250.0f, 50.0f}, shadows_ ? "SHADOWS: ON" : "SHADOWS: OFF")) shadows_ = !shadows_;
+        if (DrawButton({panel.x + 304.0f, panel.y + 180.0f, 282.0f, 50.0f}, arenaEffects_ ? "ARENA FX: ON" : "ARENA FX: OFF")) arenaEffects_ = !arenaEffects_;
+
+        DrawUiText("Direct rendering avoids the previous black-screen pipeline.", panel.x + 36.0f, panel.y + 270.0f, 15.0f, kMuted);
+        DrawUiText("No render textures or post-processing shaders are used.", panel.x + 36.0f, panel.y + 295.0f, 15.0f, kMuted);
+        if (DrawButton({panel.x + 36.0f, panel.y + 355.0f, 180.0f, 52.0f}, "BACK", true)) screen_ = Screen::Menu;
+    }
+
+    void DrawPauseMenu() {
+        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.65f));
+        Rectangle panel{static_cast<float>(GetScreenWidth()) * 0.5f - 240.0f,
+                        static_cast<float>(GetScreenHeight()) * 0.5f - 160.0f,
+                        480.0f,
+                        320.0f};
+        DrawRectangleRounded(panel, 0.05f, 8, kPanel);
+        DrawCenteredText("PAUSED", {panel.x, panel.y + 25.0f, panel.width, 60.0f}, 34.0f);
+        if (DrawButton({panel.x + 70.0f, panel.y + 110.0f, panel.width - 140.0f, 52.0f}, "RESUME", true)) screen_ = Screen::Playing;
+        if (DrawButton({panel.x + 70.0f, panel.y + 180.0f, panel.width - 140.0f, 52.0f}, "MAIN MENU")) screen_ = Screen::Menu;
+    }
 };
-}
 
-int main(){ SetConfigFlags(FLAG_WINDOW_RESIZABLE|FLAG_MSAA_4X_HINT|FLAG_VSYNC_HINT); InitWindow(1600,900,"Turbo Ball Arena 4.0 - Direct Render"); SetWindowMinSize(960,540); SetExitKey(KEY_NULL); SetTargetFPS(144); LoadUiFont(); Game game; while(!WindowShouldClose()){float dt=std::min(GetFrameTime(),0.033f);game.update(dt);game.draw();} UnloadUiFont(); CloseWindow(); return 0; }
+}  // namespace
+
+int main() {
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+    InitWindow(1600, 900, "Turbo Ball Arena 4.0 - Direct Render");
+    SetWindowMinSize(960, 540);
+    SetExitKey(KEY_NULL);
+    SetTargetFPS(144);
+    LoadUiFont();
+
+    Game game;
+    while (!WindowShouldClose()) {
+        game.Update(std::min(GetFrameTime(), 0.033f));
+        game.Draw();
+    }
+
+    UnloadUiFont();
+    CloseWindow();
+    return 0;
+}
