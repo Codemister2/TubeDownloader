@@ -7,6 +7,12 @@ on:
     paths:
       - 'TurboBallArena/**'
       - '.github/workflows/turbo-ball-arena.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'TurboBallArena/**'
+      - '.github/workflows/turbo-ball-arena.yml'
   workflow_dispatch:
 
 jobs:
